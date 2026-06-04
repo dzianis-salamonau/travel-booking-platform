@@ -1,0 +1,29 @@
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/shared-types/package.json ./packages/shared-types/
+COPY apps/frontend/package.json ./apps/frontend/
+RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm install --prefer-offline
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001/api
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+RUN pnpm --filter @travel/shared-types build
+RUN pnpm --filter @travel/frontend build
+
+FROM base AS runner
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=builder /app/apps/frontend/.next/standalone ./
+COPY --from=builder /app/apps/frontend/.next/static ./apps/frontend/.next/static
+COPY --from=builder /app/apps/frontend/public ./apps/frontend/public
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+CMD ["node", "apps/frontend/server.js"]

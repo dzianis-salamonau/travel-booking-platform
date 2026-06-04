@@ -1,0 +1,37 @@
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/shared-types/package.json ./packages/shared-types/
+COPY packages/provider-sdk/package.json ./packages/provider-sdk/
+COPY apps/backend/package.json ./apps/backend/
+RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm install --prefer-offline
+RUN pnpm --filter @travel/shared-types build
+RUN pnpm --filter @travel/provider-sdk build
+RUN cd apps/backend && npx prisma generate
+RUN pnpm --filter @travel/backend build
+
+FROM base AS runner
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
+COPY --from=builder /app/apps/backend/package.json ./apps/backend/package.json
+COPY --from=builder /app/apps/backend/prisma ./apps/backend/prisma
+COPY infrastructure/docker/docker-entrypoint.api.sh /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
+
+WORKDIR /app/apps/backend
+EXPOSE 3001
+CMD ["sh", "/entrypoint.sh"]

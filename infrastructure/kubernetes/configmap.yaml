@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: travel-config
+  namespace: travel-booking
+data:
+  PORT: "3001"
+  CORS_ORIGIN: "https://travel.example.com"
+  AI_ENABLED: "false"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
